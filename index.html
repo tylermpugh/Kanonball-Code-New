@@ -96,18 +96,18 @@
         const database = getDatabase(app);
 
       // Make p5.js functions available within module scope
-for (const key in window) {
-    if (key.startsWith('p5') || key.endsWith('_ARROW') || 
-        ['random', 'keyIsDown', 'stroke', 'strokeWeight', 'fill', 'rect', 
-         'ellipse', 'dist', 'atan2', 'cos', 'sin', 'millis', 'beginShape', 
-         'endShape', 'vertex', 'noStroke', 'textSize', 'text', 'textAlign', 
-         'CENTER', 'LEFT', 'floor', 'width', 'height', 'key', 'createCanvas', 
-         'background', 'max', 'min', 'keyCode'].includes(key)) {
-        if (window[key] !== undefined) {
-            globalThis[key] = window[key];
+        for (const key in window) {
+            if (key.startsWith('p5') || key.endsWith('_ARROW') || 
+                ['random', 'keyIsDown', 'stroke', 'strokeWeight', 'fill', 'rect', 
+                'ellipse', 'dist', 'atan2', 'cos', 'sin', 'millis', 'beginShape', 
+                'endShape', 'vertex', 'noStroke', 'textSize', 'text', 'textAlign', 
+                'CENTER', 'LEFT', 'floor', 'width', 'height', 'key', 'createCanvas', 
+                'background', 'max', 'min', 'keyCode'].includes(key)) {
+                if (window[key] !== undefined) {
+                    globalThis[key] = window[key];
+                }
+            }
         }
-    }
-}
 
         // Game Constants
         const WINDOW_WIDTH = 800;
@@ -142,186 +142,139 @@ for (const key in window) {
 	    let lastEnemySpawn = 0;
         let shapeSize = 10; // Starting size
         let lastLifeGainScore = 0;
-        let ammoDrops = [];
         let rocketsUnlocked = false;
         let nukesUnlocked = false;
-        let gunDropped = false;
-        let gunDrop = null;
-        let letterG = null;
-        let letterU = null;
-        let letterN = null;
-        let collectedLetters = {
-            G: true,
-            U: true,
-            N: true
-        };
         let elapsedFrames = 0;
         let floatingTexts = [];  // Array to store floating text objects
         let mineUnlocked = false;
         let shotgunUnlocked = false;
         let railgunUnlocked = false;
         let activeRailgunBeam = null;
-let railgunBeams = [];
+        let railgunBeams = [];
+        let nuke;
 
         // Player Class
         class Player {
+            static cooldowns = {
+                gun: 200,        // Basic gun - rapid fire
+                shotgun: 1000,   // Shotgun - moderate cooldown
+                rocket: 2000,    // Rocket - longer cooldown
+                mine: 3000,      // Mine - significant cooldown
+                railgun: 2500,   // Railgun - long cooldown
+                nuke: 15000      // Nuke - very long cooldown
+            };
+
             constructor() {
                 this.reset();
                 this.size = 20;
                 this.baseSpeed = 5;
                 this.boostSpeed = 8;
-                this.currentWeapon = 'gun';  // Can be 'none', 'gun', 'rocket', 'nuke'
+                this.currentWeapon = 'gun';
+                this.cooldowns = Player.cooldowns;
+                this.lastFireTime = {
+                    gun: 0,
+                    shotgun: 0,
+                    rocket: 0,
+                    mine: 0,
+                    railgun: 0,
+                    nuke: 0
+                };
             }
 
-            reset() {
-                this.x = WINDOW_WIDTH / 2;
-                this.y = WINDOW_HEIGHT - 50;
-                this.hasShield = false;
-                this.hasSpeedBoost = false;
-                this.hasMagnet = false;
-                this.hasSlowEnemies = false;
-                this.hasDoublePoints = false;
-                this.hasGun = true;  // Always true from start
-                this.bullets = 25;   // Start with bullets
-                this.shotgunAmmo = 0;
-                this.rockets = 0;
-                this.tripmines = 0;
-                this.railgunAmmo = 0;
-                this.lives = 3;
-                this.currentWeapon = 'gun';  // Start with regular gun
-            }
+    reset() {
+        this.x = WINDOW_WIDTH / 2;
+        this.y = WINDOW_HEIGHT - 50;
+        this.hasShield = false;
+        this.hasSpeedBoost = false;
+        this.hasMagnet = false;
+        this.hasSlowEnemies = false;
+        this.hasDoublePoints = false;
+        this.hasGun = true;
+        this.lives = 3;
+        this.currentWeapon = 'gun';
 
-            move() {
-                const currentSpeed = this.hasSpeedBoost ? this.boostSpeed : this.baseSpeed;
-                if (keyIsDown(LEFT_ARROW)) this.x -= currentSpeed;
-                if (keyIsDown(RIGHT_ARROW)) this.x += currentSpeed;
-                if (keyIsDown(UP_ARROW)) this.y -= currentSpeed;
-                if (keyIsDown(DOWN_ARROW)) this.y += currentSpeed;
-                this.x = (this.x < 0) ? WINDOW_WIDTH : (this.x > WINDOW_WIDTH) ? 0 : this.x;
-                this.y = (this.y < 0) ? WINDOW_HEIGHT : (this.y > WINDOW_HEIGHT) ? 0 : this.y;
-            }
-
-            draw() {
-                // Draw player
-                stroke(0);
-                strokeWeight(2);
-                fill(255, 0, 0);
-                rect(this.x, this.y, this.size, this.size);
-                
-                // Draw shield if active
-                if (this.hasShield) {
-                    // Draw shield outline (back to original size)
-                    stroke(0, 255, 255);  // Cyan
-                    strokeWeight(3);
-                    noFill();
-                    rect(this.x - 2, this.y - 2, this.size + 4, this.size + 4);
-                    
-                    // Draw cooldown circle
-                    const remaining = (powerupManager.powerupTimers.Shield - millis()) / POWERUP_DURATION;
-                    const angle = remaining * TWO_PI;  // Convert to radians (full circle = TWO_PI)
-                    
-                    // Draw cooldown circle in top-right corner
-                    noStroke();
-                    fill(0, 255, 255, 100);  // Transparent cyan
-                    arc(this.x + this.size + 8, this.y - 8,  // Position
-                        12, 12,                               // Size
-                        -HALF_PI,                            // Start at top
-                        -HALF_PI + angle,                    // End based on remaining time
-                        PIE);                                // PIE mode for filled arc
-                }
-
-                // Draw current weapon name above player if it's not 'none'
-                if (this.currentWeapon !== 'none') {
-                    textSize(12);
-                    fill(255, 0, 0);  // Red text
-                    textAlign(CENTER);
-                    const displayText = this.currentWeapon === 'gun' ? 'BULLETS' : this.currentWeapon.toUpperCase();
-                    text(displayText, this.x + this.size/2, this.y - 5);
-                    textAlign(LEFT);
-                }
-            }
-
-            cycleWeapon() {
-        const weaponOrder = ['gun'];
-        if (shotgunUnlocked) weaponOrder.push('shotgun');
-        if (rocketsUnlocked) weaponOrder.push('rocket');
-        if (mineUnlocked) weaponOrder.push('mine');
-        if (railgunUnlocked) weaponOrder.push('railgun');
-        if (nukesUnlocked) weaponOrder.push('nuke');
-
-        // Find current weapon index
-        let currentIndex = weaponOrder.indexOf(this.currentWeapon);
-        
-        // Try each next weapon in sequence until we find one with ammo
-        let foundValidWeapon = false;
-        let checkedCount = 0;
-        
-        while (!foundValidWeapon && checkedCount < weaponOrder.length) {
-            currentIndex = (currentIndex + 1) % weaponOrder.length;
-            const nextWeapon = weaponOrder[currentIndex];
-            
-            // Check if we have ammo for this weapon
-            switch(nextWeapon) {
-                case 'gun':
-                    if (this.bullets > 0) foundValidWeapon = true;
-                    break;
-                case 'shotgun':
-                    if (this.shotgunAmmo > 0) foundValidWeapon = true;
-                    break;
-                case 'rocket':
-                    if (this.rockets > 0) foundValidWeapon = true;
-                    break;
-                case 'mine':
-                    if (this.tripmines > 0) foundValidWeapon = true;
-                    break;
-                case 'railgun':
-                    if (this.railgunAmmo > 0) foundValidWeapon = true;
-                    break;
-                case 'nuke':
-                    if (nuke.numNukesOwned > 0) foundValidWeapon = true;
-                    break;
-            }
-            
-            if (foundValidWeapon) {
-                this.currentWeapon = nextWeapon;
-            }
-            checkedCount++;
+        if (this.lastFireTime) {
+            Object.keys(this.lastFireTime).forEach(weapon => {
+                this.lastFireTime[weapon] = 0;
+            });
         }
+    }
+
+    cycleWeapon() {
+        const weaponOrder = ['gun'];
+        if (score >= 1500) weaponOrder.push('shotgun');
+        if (score >= 3000) weaponOrder.push('rocket');
+        if (score >= 5000) weaponOrder.push('mine');
+        if (score >= 7500) weaponOrder.push('railgun');
+        if (score >= 10000) weaponOrder.push('nuke');
         
-        if (!foundValidWeapon) {
-            this.currentWeapon = 'gun';  // Default back to gun if no ammo for anything
+        let currentIndex = weaponOrder.indexOf(this.currentWeapon);
+        currentIndex = (currentIndex + 1) % weaponOrder.length;
+        this.currentWeapon = weaponOrder[currentIndex];
+    }
+
+    canFire() {
+        const currentTime = millis();
+        return currentTime - this.lastFireTime[this.currentWeapon] >= this.cooldowns[this.currentWeapon];
+    }
+
+    updateLastFireTime() {
+        this.lastFireTime[this.currentWeapon] = millis();
+    }
+
+    // Rest of the Player class methods...
+    move() {
+        const currentSpeed = this.hasSpeedBoost ? this.boostSpeed : this.baseSpeed;
+        if (keyIsDown(LEFT_ARROW)) this.x -= currentSpeed;
+        if (keyIsDown(RIGHT_ARROW)) this.x += currentSpeed;
+        if (keyIsDown(UP_ARROW)) this.y -= currentSpeed;
+        if (keyIsDown(DOWN_ARROW)) this.y += currentSpeed;
+        this.x = (this.x < 0) ? WINDOW_WIDTH : (this.x > WINDOW_WIDTH) ? 0 : this.x;
+        this.y = (this.y < 0) ? WINDOW_HEIGHT : (this.y > WINDOW_HEIGHT) ? 0 : this.y;
+    }
+
+    draw() {
+        stroke(0);
+        strokeWeight(2);
+        fill(255, 0, 0);
+        rect(this.x, this.y, this.size, this.size);
+        
+        if (this.hasShield) {
+            stroke(0, 255, 255);
+            strokeWeight(3);
+            noFill();
+            rect(this.x - 2, this.y - 2, this.size + 4, this.size + 4);
         }
     }
 }
-
 
         // Enemy Class
         class Enemy {
-    constructor() {
-        this.size = 15;
-        this.baseSpeed = 2;
-        this.frozen = false;  // Add this line
-        this.respawn();
+            constructor() {
+                this.size = 15;
+                this.baseSpeed = 2;
+                this.frozen = false;  // Add this line
+                this.respawn();
 }
 
-    respawn() {
-        const safeRadius = 200;  // Increased from 100 to 200 pixels
-        let validPosition = false;
-        
-        while (!validPosition) {
-            this.x = random(WINDOW_WIDTH);
-            this.y = random(WINDOW_HEIGHT - 100);
-            
-            // Check distance from player
-            const distFromPlayer = dist(this.x, this.y, 
-                                     player.x + player.size/2, 
-                                     player.y + player.size/2);
-            
-            if (distFromPlayer > safeRadius) {
-                validPosition = true;
+            respawn() {
+                const safeRadius = 200;  // Increased from 100 to 200 pixels
+                let validPosition = false;
+                
+                while (!validPosition) {
+                    this.x = random(WINDOW_WIDTH);
+                    this.y = random(WINDOW_HEIGHT - 100);
+                    
+                    // Check distance from player
+                    const distFromPlayer = dist(this.x, this.y, 
+                                            player.x + player.size/2, 
+                                            player.y + player.size/2);
+                    
+                    if (distFromPlayer > safeRadius) {
+                        validPosition = true;
+                    }
+                }
             }
-        }
-    }
 
             move(player) {
                 if (this.frozen) {
@@ -354,6 +307,7 @@ let railgunBeams = [];
                 return dist(this.x, this.y, player.x + player.size / 2, player.y + player.size / 2) < (this.size / 2 + player.size / 2);
             }
         }
+        
         class Bullet {
             constructor(x, y) {
                 this.x = x;
@@ -431,38 +385,37 @@ class RailgunBeam {
         this.duration = 2000;  // 2 seconds in milliseconds
         this.startTime = millis();
         this.width = 8;
-        this.length = WINDOW_HEIGHT;  // Full screen height
+        this.length = WINDOW_HEIGHT;
         this.alpha = 255;
     }
 
     update() {
-        // Calculate how much time is left
         const elapsed = millis() - this.startTime;
         const remaining = this.duration - elapsed;
         
-        // Update alpha for fade out effect
-        if (remaining < 500) {  // Start fading in last 0.5 seconds
+        if (remaining < 500) {
             this.alpha = (remaining / 500) * 255;
         }
         
-        return remaining > 0;  // Return true if beam should continue
+        return remaining > 0;
     }
 
     draw() {
-        // Draw the main beam
+        // Main beam
         noStroke();
-        fill(255, 0, 255, this.alpha);  // Purple with alpha
+        fill(255, 0, 255, this.alpha);
         rect(this.x - this.width/2, 0, this.width, this.length);
         
-        // Draw glow effect
+        // Glow effect
         for(let i = 1; i <= 3; i++) {
-            fill(255, 0, 255, this.alpha * (0.3 / i));  // Decreasing alpha for glow
+            fill(255, 0, 255, this.alpha * (0.3 / i));
             rect(this.x - (this.width * i)/2, 0, this.width * i, this.length);
         }
     }
 
     hits(enemy) {
-        return abs(enemy.x - this.x) < this.width * 1.5;  // Check if enemy touches beam
+        // Improved hit detection
+        return abs(enemy.x - this.x) < (this.width + enemy.size/2);
     }
 }
 
@@ -525,7 +478,7 @@ class Nuke {
         this.duration = 5000;
         this.activationScore = 2500;
         this.available = true;
-        this.numNukesOwned = 0;
+        this.numNukesOwned = 1;  // Initialize with 1 nuke
     }
 
     update() {
@@ -535,23 +488,25 @@ class Nuke {
     activate() {
         if (this.numNukesOwned > 0) {
             this.numNukesOwned--;
-            // Try drops and show points for all enemies before removing them
+            // Show points for all enemies before removing them
             enemies.forEach(enemy => {
-                tryAmmoDrop(enemy.x, enemy.y);
-                floatingTexts.push(new FloatingText(enemy.x, enemy.y, 'points'));  // Add white floating text
-                score += player.hasDoublePoints ? 10 : 5;  // Add points for each kill
+                floatingTexts.push(new FloatingText(enemy.x, enemy.y, 'points'));
+                score += player.hasDoublePoints ? 10 : 5;
             });
             enemies.splice(0, enemies.length);
             bullets.splice(0, bullets.length);
             rockets.splice(0, rockets.length);
-            // ammoDrops.splice(0, ammoDrops.length);  // Commented out - keep ammo drops
-            // powerupManager.activePowerups.splice(0, powerupManager.activePowerups.length);  // Commented out - keep powerups
+            
+            // Add visual feedback
+            floatingTexts.push(new FloatingText(
+                WINDOW_WIDTH / 2, 
+                WINDOW_HEIGHT / 2, 
+                "☢️ NUKE ACTIVATED! ☢️", 
+                'powerup'
+            ));
         }
     }
 }
-
-const nuke = new Nuke();
-     
         // PowerupManager Class
         class PowerupManager {
     constructor() {
@@ -732,125 +687,123 @@ deactivatePowerup(type) {
 
         // Game Functions
         function resetGame() {
-    try {
-        console.log("Starting game reset");
-        // Clear all arrays
-        enemies = [];
-        bullets = [];
-        ammoDrops = [];
-        rockets = [];
-        
-        // Reset game objects
-        player = new Player();
-        powerupManager = new PowerupManager();
-        rocketsUnlocked = false;
-        nukesUnlocked = false;
-        mineUnlocked = false;
-        nuke.numNukesOwned = 0;
-        
-        // Reset gun collection system
-        collectedLetters = {
-            G: false,
-            U: false,
-            N: false
-        };
-        
-        // Reset all game state variables
-        score = 0;
-        gameOver = false;
-        lastEnemySpawn = floor(millis() / 1000);
-        gameStartTime = floor(millis() / 1000);
-        baseSpawnInterval = .5;
-        lastLifeGainScore = 0;
-        elapsedFrames = 0;  // Reset frame counter
-        
-        // Spawn initial entities
-        enemies.push(new Enemy());
-        
-        gameInitialized = true;
-        console.log("Game reset completed successfully");
-    } catch (error) {
-        console.error("Error in resetGame:", error);
-        gameInitialized = false;
-    }
-}
-function drawEnemies() {
-    enemies.forEach(enemy => enemy.draw());
-}
-function updateEnemies() {
-    const currentTime = floor(millis() / 1000);
-    
-    // Calculate spawn count based on elapsed frames
-    const baseSpawnCount = 1;
-    const additionalSpawns = elapsedFrames * 0.001;  // Increased from 0.0009 to 0.001
-    let spawnCount = Math.floor(baseSpawnCount + additionalSpawns);
-    
-    // Handle fractional spawns by randomly adding an extra enemy
-    const fractionalPart = (baseSpawnCount + additionalSpawns) - spawnCount;
-    if (random() < fractionalPart) {
-        spawnCount += 1;
-    }
+            try {
+                console.log("Starting game reset");
+                // Clear all arrays
+                enemies = [];
+                bullets = [];
+                rockets = [];
+                railgunBeams = [];
+                activeRailgunBeam = null;
+                railgunUnlocked = false;
+                floatingTexts = [];
+                
+                // Reset game objects
+                player = new Player();
+                powerupManager = new PowerupManager();
+                nuke = new Nuke();  // Ensure nuke is initialized
+                
+                // Reset all game state variables
+                score = 0;
+                gameOver = false;
+                lastEnemySpawn = floor(millis() / 1000);
+                gameStartTime = floor(millis() / 1000);
+                baseSpawnInterval = 0.5;
+                lastLifeGainScore = 0;
+                elapsedFrames = 0;
+                
+                // Reset weapon unlock states
+                rocketsUnlocked = false;
+                nukesUnlocked = false;
+                mineUnlocked = false;
+                shotgunUnlocked = false;
+                railgunUnlocked = false;
+                
+                // Spawn initial entities
+                enemies.push(new Enemy());
+                
+                gameInitialized = true;
+                console.log("Game reset completed successfully");
 
-    // Spawn enemies at regular interval
-    if (currentTime - lastEnemySpawn >= ENEMY_SPAWN_INTERVAL) {
-        for(let i = 0; i < spawnCount; i++) {
-            enemies.push(new Enemy());
-        }
-        lastEnemySpawn = currentTime;
-    }
-
-    enemies.forEach(enemy => enemy.move(player));
-}
-function checkCollisions() {
-    for (const enemy of enemies) {
-        if (enemy.collidesWithPlayer(player)) {
-            if (player.hasShield) {
-                console.log("Enemy killed by shield collision - attempting drop");
-                tryAmmoDrop(enemy.x, enemy.y);
-                floatingTexts.push(new FloatingText(enemy.x, enemy.y));
-                score += player.hasDoublePoints ? 10 : 5;
-                const index = enemies.indexOf(enemy);
-                if (index > -1) {
-                    enemies.splice(index, 1);
-                }
-                continue;
-            }
-
-            player.lives--;
-            tryAmmoDrop(enemy.x, enemy.y);
-            floatingTexts.push(new FloatingText(enemy.x, enemy.y));
-            score += player.hasDoublePoints ? 10 : 5;
-            const index = enemies.indexOf(enemy);
-            if (index > -1) {
-                enemies.splice(index, 1);
-            }
-
-            if (player.lives <= 0) {
-                gameOver = true;
-                if (score > highScores[MAX_HIGH_SCORES - 1].score) {
-                    isEnteringInitials = true;
-                }
+            } catch (error) {
+                console.error("Error in resetGame:", error);
+                gameInitialized = false;
             }
         }
-    }
-}
+        function drawEnemies() {
+            enemies.forEach(enemy => enemy.draw());
+        }
+        function updateEnemies() {
+            const currentTime = floor(millis() / 1000);
+            
+            // Calculate spawn count based on elapsed frames
+            const baseSpawnCount = 1;
+            const additionalSpawns = elapsedFrames * 0.001;  // Increased from 0.0009 to 0.001
+            let spawnCount = Math.floor(baseSpawnCount + additionalSpawns);
+            
+            // Handle fractional spawns by randomly adding an extra enemy
+            const fractionalPart = (baseSpawnCount + additionalSpawns) - spawnCount;
+            if (random() < fractionalPart) {
+                spawnCount += 1;
+            }
+
+            // Spawn enemies at regular interval
+            if (currentTime - lastEnemySpawn >= ENEMY_SPAWN_INTERVAL) {
+                for(let i = 0; i < spawnCount; i++) {
+                    enemies.push(new Enemy());
+                }
+                lastEnemySpawn = currentTime;
+            }
+
+            enemies.forEach(enemy => enemy.move(player));
+        }
+
+        function checkCollisions() {
+            for (const enemy of enemies) {
+                if (enemy.collidesWithPlayer(player)) {
+                    if (player.hasShield) {
+                        floatingTexts.push(new FloatingText(enemy.x, enemy.y));
+                        score += player.hasDoublePoints ? 10 : 5;
+                        const index = enemies.indexOf(enemy);
+                        if (index > -1) {
+                            enemies.splice(index, 1);
+                        }
+                        continue;
+                    }
+
+                    player.lives--;
+                    floatingTexts.push(new FloatingText(enemy.x, enemy.y));
+                    score += player.hasDoublePoints ? 10 : 5;
+                    const index = enemies.indexOf(enemy);
+                    if (index > -1) {
+                        enemies.splice(index, 1);
+                    }
+
+                    if (player.lives <= 0) {
+                        gameOver = true;
+                        if (score > highScores[MAX_HIGH_SCORES - 1].score) {
+                            isEnteringInitials = true;
+                        }
+                    }
+                }
+            }
+        }
+
 
         function updateBullets() {
-    for (let i = bullets.length - 1; i >= 0; i--) {
-        bullets[i].update();
-        
-        // Check for collisions with enemies
-        for (let j = enemies.length - 1; j >= 0; j--) {
-            if (bullets[i] && bullets[i].hits(enemies[j])) {
-                console.log("Enemy killed by bullet - attempting drop");
-                tryAmmoDrop(enemies[j].x, enemies[j].y);
-                floatingTexts.push(new FloatingText(enemies[j].x, enemies[j].y));
-                score += player.hasDoublePoints ? 10 : 5;
-                enemies.splice(j, 1);
-                bullets.splice(i, 1);
-                break;
-            }
-        }
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                bullets[i].update();
+                
+                // Check for collisions with enemies
+                for (let j = enemies.length - 1; j >= 0; j--) {
+                    if (bullets[i] && bullets[i].hits(enemies[j])) {
+                        floatingTexts.push(new FloatingText(enemies[j].x, enemies[j].y));
+                        score += player.hasDoublePoints ? 10 : 5;
+                        enemies.splice(j, 1);
+                        bullets.splice(i, 1);
+                        break;
+                    }
+                }
         
         // Remove offscreen bullets
         if (bullets[i] && bullets[i].isOffscreen()) {
@@ -901,8 +854,6 @@ function updateRockets() {
             
             // Process all enemy hits (from highest index to lowest)
             enemiesHit.sort((a, b) => b.index - a.index).forEach(hit => {
-                console.log("Enemy killed by rocket - attempting drop");
-                tryAmmoDrop(hit.x, hit.y);
                 floatingTexts.push(new FloatingText(hit.x, hit.y));
                 score += player.hasDoublePoints ? 10 : 5;
                 enemies.splice(hit.index, 1);
@@ -910,7 +861,9 @@ function updateRockets() {
         }
     }
 }
+
 function updateRailgunBeams() {
+    console.log("Updating railgun beams:", railgunBeams.length);
     for (let i = railgunBeams.length - 1; i >= 0; i--) {
         const beam = railgunBeams[i];
         if (!beam.update()) {
@@ -924,7 +877,6 @@ function updateRailgunBeams() {
         // Check for enemy hits
         for (let j = enemies.length - 1; j >= 0; j--) {
             if (beam.hits(enemies[j])) {
-                tryAmmoDrop(enemies[j].x, enemies[j].y);
                 floatingTexts.push(new FloatingText(enemies[j].x, enemies[j].y, 'points'));
                 score += player.hasDoublePoints ? 10 : 5;
                 enemies.splice(j, 1);
@@ -932,6 +884,7 @@ function updateRailgunBeams() {
         }
     }
 }
+
 function drawRailgunBeams() {
     railgunBeams.forEach(beam => beam.draw());
 }
@@ -944,37 +897,33 @@ function checkLifeGain() {
     // Weapon unlocks based on score
     if (score >= 1500 && !shotgunUnlocked) {
         shotgunUnlocked = true;
-        player.shotgunAmmo = 15;
         floatingTexts.push(new FloatingText(player.x, player.y - 20, "SHOTGUN UNLOCKED!", "powerup"));
     }
     
     if (score >= 3000 && !rocketsUnlocked) {
         rocketsUnlocked = true;
-        player.rockets = 5;
         floatingTexts.push(new FloatingText(player.x, player.y - 20, "ROCKETS UNLOCKED!", "powerup"));
     }
 
     if (score >= 5000 && !mineUnlocked) {
         mineUnlocked = true;
-        player.tripmines = 3;
         floatingTexts.push(new FloatingText(player.x, player.y - 20, "MINES UNLOCKED!", "powerup"));
     }
 
     if (score >= 7500 && !railgunUnlocked) {
         railgunUnlocked = true;
-        player.railgunAmmo = 10;
         floatingTexts.push(new FloatingText(player.x, player.y - 20, "RAILGUN UNLOCKED!", "powerup"));
     }
 
     if (score >= 10000 && !nukesUnlocked) {
         nukesUnlocked = true;
-        nuke.numNukesOwned = 1;
         floatingTexts.push(new FloatingText(player.x, player.y - 20, "NUKE UNLOCKED!", "powerup"));
     }
 }
 
+// Remove ammo-related display from displayGameInfo
 function displayGameInfo() {
-    // Display score and lives (keep at top left)
+    // Display score and lives
     fill(255);
     textSize(32);
     text("Score: " + score, 10, 30);
@@ -982,50 +931,38 @@ function displayGameInfo() {
     fill(255, 0, 0);
     text("Lives: " + "♥".repeat(player.lives), 10, 60);
 
-    // Display GUN text at top right
-    fill(255);  // White text
+    // Display weapons menu
+    fill(255);
     textAlign(RIGHT);
     textSize(20);
-    text("GUN", width - 20, 30);  // Always show GUN at top
+    let yPos = 30;
+    
+    // Show available weapons based on score
+    text("WEAPONS:", width - 20, yPos);
+    yPos += 25;
+    
+    const weapons = [
+        { name: "GUN", unlocked: true },
+        { name: "SHOTGUN", unlocked: score >= 1500 },
+        { name: "ROCKET", unlocked: score >= 3000 },
+        { name: "MINE", unlocked: score >= 5000 },
+        { name: "RAILGUN", unlocked: score >= 7500 },
+        { name: "NUKE", unlocked: score >= 10000 }
+    ];
 
-    // Display inventory at top right
-    if (player.hasGun) {
-        let yPos = 60;  // Starting Y position
-
-        // Regular bullets
-        text("Bullets: " + player.bullets, width - 20, yPos);
-        yPos += 30;
-        
-        // Shotgun ammo
-        if (shotgunUnlocked) {
-            text("Shotgun: " + player.shotgunAmmo, width - 20, yPos);
-            yPos += 30;
+    weapons.forEach(weapon => {
+        if (weapon.unlocked) {
+            if (player.currentWeapon === weapon.name.toLowerCase()) {
+                fill(255, 0, 0);  // Highlight current weapon
+            } else {
+                fill(255);
+            }
+            text(weapon.name, width - 20, yPos);
+            yPos += 25;
         }
+    });
 
-        // Rockets
-        if (rocketsUnlocked) {
-            text("Rockets: " + player.rockets, width - 20, yPos);
-            yPos += 30;
-        }
-
-        // Mines
-        if (mineUnlocked) {
-            text("Mines: " + player.tripmines, width - 20, yPos);
-            yPos += 30;
-        }
-
-        // Railgun ammo
-        if (railgunUnlocked) {
-            text("Railgun: " + player.railgunAmmo, width - 20, yPos);
-            yPos += 30;
-        }
-
-        // Nukes
-        if (nukesUnlocked) {
-            text("Nukes: " + nuke.numNukesOwned, width - 20, yPos);
-        }
-    }
-    textAlign(LEFT);  // Reset alignment
+    textAlign(LEFT);
 }
 
 function drawBullets() {
@@ -1146,107 +1083,84 @@ function insertHighScore(initials, score) {
         }
 
         window.draw = function() {
-    try {
-        if (!gameInitialized) {
-            console.log("Game not yet initialized, waiting...");
-            background(0);
-            return;
-        }
-        
-        if (gameOver) {
-            drawGameOver();
-            return;
+            try {
+                if (!gameInitialized) {
+                    console.log("Game not yet initialized, waiting...");
+                    background(0);
+                    return;
+                }
+                
+                if (gameOver) {
+                    drawGameOver();
+                    return;
+                }
+
+                elapsedFrames++;
+                background(0);
+                player.move();
+                updateEnemies();
+                incrementScore();
+                checkLifeGain();
+                powerupManager.update();
+                updateBullets();  
+                updateRockets();
+                player.draw();
+                drawMine();
+                drawEnemies();
+                drawBullets();
+                drawRockets();
+                powerupManager.draw();
+                updateRailgunBeams();
+                drawRailgunBeams();
+                drawFloatingTexts();
+                displayGameInfo();
+                checkCollisions();
+
+            } catch (error) {
+                console.error("Error in draw loop:", error);
+                gameInitialized = false;
+            }
         }
 
-        elapsedFrames++;  // Increment frame counter
-        background(0);
-        player.move();
-        updateEnemies();
-        incrementScore();
-        checkLifeGain();
-        powerupManager.update();
-        updateBullets();  
-        updateRockets(); 
-        player.draw();
-        drawMine();
-        drawEnemies();
-        drawBullets();    
-        drawRockets(); 
-        powerupManager.draw();
-        updateAmmoDrops();
-        drawAmmoDrops();
-        updateRailgunBeams();
-        drawRailgunBeams();
-        drawFloatingTexts();
-        displayGameInfo();
-        checkCollisions();
-    } catch (error) {
-        console.error("Error in draw loop:", error);
-        gameInitialized = false;
-    }
-}
-
-window.keyPressed = function() {
-    if (!player) return;  // Add this check
-    
-    if (gameOver) {
-        if (isEnteringInitials) {
-            handleInitialsInput();
-        } else if (key === ' ') {
-            resetGame();
-        }
-    } else {
-        // Add debug logs back
-        if (key === 'r') {
-            console.log("R key pressed");
-            console.log("Has rockets:", player.hasRockets);
-            console.log("Rocket count:", player.rockets);
-        }
-        
-        if (key === 'Shift' && player.hasGun) {  // Only allow weapon cycling if player has gun
-            player.cycleWeapon();
-            console.log("Weapon cycled to:", player.currentWeapon);
-        }
-        
-        // Space to fire current weapon
-        if (key === ' ' && player.hasGun) {
-         switch(player.currentWeapon) {
+        window.keyPressed = function() {
+            if (!player) return;
+            
+            if (gameOver) {
+                if (isEnteringInitials) {
+                    handleInitialsInput();
+                } else if (key === ' ') {
+                    resetGame();
+                }
+            } else {
+                if (key === 'Shift') {
+                    player.cycleWeapon();
+                    console.log("Weapon cycled to:", player.currentWeapon);
+                }
+        // Space to fire current weapon if cooldown has expired
+        if (key === ' ' && player.canFire()) {
+            switch(player.currentWeapon) {
                 case 'gun':
-                    if (player.bullets > 0) {
-                        bullets.push(new Bullet(player.x + player.size/2, player.y + player.size/2));
-                        player.bullets--;
-                    }
+                    bullets.push(new Bullet(player.x + player.size/2, player.y + player.size/2));
                     break;
+
                 case 'shotgun':
-                    if (player.shotgunAmmo > 0) {
-                        // Create 5 pellets with spread
-                        const spreadAngles = [-0.3, -0.15, 0, 0.15, 0.3];  // Spread angles in radians
-                        spreadAngles.forEach(angle => {
-                            bullets.push(new ShotgunPellet(player.x + player.size/2, player.y + player.size/2, angle));
-                        });
-                        player.shotgunAmmo--;
-                    }
+                    // Create 5 pellets with spread
+                    const spreadAngles = [-0.3, -0.15, 0, 0.15, 0.3];
+                    spreadAngles.forEach(angle => {
+                        bullets.push(new ShotgunPellet(player.x + player.size/2, player.y + player.size/2, angle));
+                    });
                     break;
+
                 case 'rocket':
-                    if (player.rockets > 0) {
-                        console.log("Firing rocket, remaining rockets:", player.rockets - 1);
-                        rockets.push(new Rocket(player.x + player.size/2, player.y + player.size/2));
-                        player.rockets--;
-                    }
+                    rockets.push(new Rocket(player.x + player.size/2, player.y + player.size/2));
                     break;
-                    case 'mine':
-                    if (player.tripmines > 0 && !player.activeMine) {
-                        console.log("Placing mine");
-                        player.activeMine = new Mine(
-                            player.x + player.size/2, 
-                            player.y + player.size/2
-                        );
-                        player.tripmines--;
-                    } else if (player.activeMine) {
-                        console.log("Detonating mine");
+
+                case 'mine':
+                    if (!player.activeMine) {
+                        player.activeMine = new Mine(player.x + player.size/2, player.y + player.size/2);
+                    } else {
                         const hitEnemies = player.activeMine.explode();
                         hitEnemies.forEach(enemy => {
-                            tryAmmoDrop(enemy.x, enemy.y);
                             floatingTexts.push(new FloatingText(enemy.x, enemy.y, 'points'));
                             score += player.hasDoublePoints ? 10 : 5;
                         });
@@ -1256,176 +1170,26 @@ window.keyPressed = function() {
                         player.activeMine = null;
                     }
                     break;
+
                 case 'railgun':
-                    if (player.railgunAmmo > 0 && !activeRailgunBeam) {
-                        activeRailgunBeam = new RailgunBeam(player.x + player.size/2, player.y);
-                        railgunBeams.push(activeRailgunBeam);
-                        player.railgunAmmo--;
+                    if (score >= 7500) {  // Check if railgun is unlocked
+                        console.log("Firing railgun");
+                        const newBeam = new RailgunBeam(player.x + player.size/2, player.y);
+                        railgunBeams.push(newBeam);
+                        activeRailgunBeam = newBeam;
                     }
                     break;
+
                 case 'nuke':
-                    if (nuke.numNukesOwned > 0) {
-                        console.log("Activating nuke");
+                    if (nuke && typeof nuke.activate === 'function') {
+                        console.log("Activating nuke...");
                         nuke.activate();
+                    } else {
+                        console.error("Nuke object or activate method not found");
                     }
                     break;
             }
-        }
-    }
-}
-
-class AmmoDrop {
-    constructor(x, y, type) {
-        this.x = x;
-        this.y = y;
-        this.type = type;  // 'B', 'R', or 'N'
-        this.size = 20;
-    }
-
-    draw() {
-        textSize(20);
-        fill(128, 0, 128);  // Same purple as powerup
-        noStroke();
-        text(this.type, this.x, this.y);
-    }
-
-    collidesWithPlayer(player) {
-        return dist(this.x, this.y, player.x + player.size / 2, player.y + player.size / 2) < 
-            (this.size / 2 + player.size / 2);
-    }
-}
-
-// Add ammo drop chance function
-function tryAmmoDrop(x, y) {
-    const dropChance = 0.1;
-    
-    if (random() < dropChance) {
-        let roll = random();
-        let type = 'B';  // Default to bullets
-        
-        if (score >= 10000) {  // All weapons available
-            if (roll < 0.40) type = 'B';        // 40% bullets
-            else if (roll < 0.60) type = 'S';    // 20% shotgun
-            else if (roll < 0.75) type = 'R';    // 15% rockets
-            else if (roll < 0.85) type = 'M';    // 10% mines
-            else if (roll < 0.95) type = 'G';    // 10% railgun
-            else type = 'N';                     // 5% nukes
-        }
-        else if (score >= 7500) {  // Up to railgun
-            if (roll < 0.45) type = 'B';
-            else if (roll < 0.65) type = 'S';
-            else if (roll < 0.80) type = 'R';
-            else if (roll < 0.90) type = 'M';
-            else type = 'G';
-        }
-        else if (score >= 5000) {  // Up to mines
-            if (roll < 0.50) type = 'B';
-            else if (roll < 0.70) type = 'S';
-            else if (roll < 0.85) type = 'R';
-            else type = 'M';
-        }
-        else if (score >= 3000) {  // Up to rockets
-            if (roll < 0.60) type = 'B';
-            else if (roll < 0.80) type = 'S';
-            else type = 'R';
-        }
-        else if (score >= 1500) {  // Up to shotgun
-            if (roll < 0.70) type = 'B';
-            else type = 'S';
-        }
-        
-        ammoDrops.push(new AmmoDrop(x, y, type));
-    }
-}
-
-// Update updateAmmoDrops to handle mine pickups
-function updateAmmoDrops() {
-    for (let i = ammoDrops.length - 1; i >= 0; i--) {
-        const drop = ammoDrops[i];
-        if (drop.collidesWithPlayer(player)) {
-            let ammoText;
-            switch (drop.type) {
-                case 'B':
-                    player.bullets += 10;
-                    ammoText = "+10 Bullets";
-                    break;
-                case 'S':
-                    player.shotgunAmmo += 5;
-                    ammoText = "+5 Shotgun";
-                    break;
-                case 'R':
-                    player.rockets += 3;
-                    ammoText = "+3 Rockets";
-                    break;
-                case 'M':
-                    player.tripmines += 2;
-                    ammoText = "+2 Mines";
-                    break;
-                case 'G':
-                    player.railgunAmmo += 5;
-                    ammoText = "+5 Railgun";
-                    break;
-                case 'N':
-                    nuke.numNukesOwned += 1;
-                    ammoText = "+1 Nuke";
-                    break;
-            }
-            floatingTexts.push(new FloatingText(drop.x, drop.y, ammoText, 'ammo'));
-            ammoDrops.splice(i, 1);
-        }
-    }
-}
-
-function drawAmmoDrops() {
-    ammoDrops.forEach(drop => drop.draw());
-}
-
-class GunDrop {
-    constructor(x, y, letter) {
-        this.x = x;
-        this.y = y;
-        this.letter = letter;
-        this.size = 20;
-        this.collected = false;
-        this.animating = false;
-        this.targetX = 0;
-        this.targetY = 30;
-        this.animationProgress = 0;
-        this.animationDuration = 60;
-    }
-
-    collidesWithPlayer(player) {
-        return dist(this.x, this.y, player.x + player.size / 2, player.y + player.size / 2) < 
-            (this.size / 2 + player.size / 2);
-    }
-
-    draw() {
-        if (!this.collected) {
-            textSize(20);
-            fill(128, 0, 128);  // Purple when uncollected
-            noStroke();
-            text(this.letter, this.x, this.y);
-        } else if (this.animating) {
-            // Calculate position during animation
-            this.animationProgress++;
-            const progress = this.animationProgress / this.animationDuration;
-            
-            // Smooth easing
-            const eased = 1 - Math.pow(1 - progress, 3);
-            
-            // Interpolate position
-            const currentX = lerp(this.x, this.targetX, eased);
-            const currentY = lerp(this.y, this.targetY, eased);
-            
-            textSize(20);
-            fill(128, 0, 128);
-            noStroke();
-            text(this.letter, currentX, currentY);
-            
-            // End animation
-            if (this.animationProgress >= this.animationDuration) {
-                this.animating = false;
-            }
+            player.updateLastFireTime();
         }
     }
 }
